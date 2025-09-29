@@ -1,0 +1,4 @@
+bin/*
+/tmp
+testing.xlsx
+xlsx-processor/testing.xlsx

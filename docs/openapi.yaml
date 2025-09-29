@@ -1,0 +1,195 @@
+openapi: 3.0.3
+info:
+  title: XLSX Processor API
+  version: 1.0.0
+  description: XLSX truncate and transform operations, JSON preview export, optional webhooks.
+servers:
+  - url: /xlsx-processor
+paths:
+  /truncate:
+    post:
+      summary: Truncate an XLSX file
+      description: Downloads from input storage, stores to output, and returns a JSON preview of sheets and attributes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestBodyTruncate'
+      responses:
+        '202':
+          description: Accepted; preview returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  previewContent:
+                    type: array
+                    items: { type: array, items: { type: array, items: { type: string } } }
+                  attributes:
+                    type: object
+        '400': { description: Validation error }
+        '500': { description: Internal error }
+
+  /transform:
+    post:
+      summary: Transform an XLSX file
+      description: Applies rules to an XLSX file; returns a base64-encoded XLSX if no output, or stores and acknowledges.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestBodyTransform'
+      responses:
+        '202':
+          description: Transformation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file: { type: string, description: Base64 XLSX }
+                  contentType: { type: string }
+                  filename: { type: string }
+        '400': { description: Validation error }
+        '500': { description: Internal error }
+
+  /transformjson:
+    post:
+      summary: Transform an XLSX and return JSON preview
+      description: Applies rules and returns JSON preview (or stores JSON if output provided).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestBodyTransform'
+      responses:
+        '202':
+          description: Transformation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  previewContent: {}
+                  attributes: {}
+
+  /healthz/ready:
+    get:
+      summary: Readiness
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: ok
+
+components:
+  schemas:
+    SourceReference:
+      type: object
+      properties:
+        id: { type: string }
+        bucket: { type: string }
+        prefix: { type: string }
+        region: { type: string }
+    Secrets:
+      type: object
+      properties:
+        secret: { type: string }
+        accessToken: { type: string }
+    Resources:
+      type: object
+      properties:
+        id: { type: string }
+    Credential:
+      type: object
+      properties:
+        secrets: { $ref: '#/components/schemas/Secrets' }
+        resources: { $ref: '#/components/schemas/Resources' }
+      required: [secrets, resources]
+    Input:
+      type: object
+      properties:
+        storageType: { type: string }
+        reference: { $ref: '#/components/schemas/SourceReference' }
+        credential: { $ref: '#/components/schemas/Credential' }
+      required: [storageType, reference, credential]
+    Output:
+      type: object
+      properties:
+        storageType: { type: string }
+        reference: { $ref: '#/components/schemas/SourceReference' }
+        credential: { $ref: '#/components/schemas/Credential' }
+      required: [storageType, reference, credential]
+    WebhookPayload:
+      type: object
+      properties:
+        msg: { type: string }
+        browserTabID: { type: string }
+        uuid: { type: string }
+        userId: { type: string }
+        s3Bucket: { type: string }
+        s3Key: { type: string }
+        sourceId: { type: string }
+        status: { type: string, enum: [SUCCESS, ERROR] }
+      required: [msg, uuid, userId, s3Bucket, s3Key, sourceId, status]
+    Webhook:
+      type: object
+      properties:
+        url: { type: string }
+        responseToken: { type: string }
+        payload: { $ref: '#/components/schemas/WebhookPayload' }
+      required: [url, responseToken, payload]
+    Action:
+      type: object
+      properties:
+        operation: { type: string, enum: [range, value, textColor, bgColor, column, row] }
+        value: { type: string }
+        actionType: { type: string }
+    PageCondition:
+      type: object
+      properties:
+        sheetName: { type: string }
+        includeFormulas: { type: boolean }
+        nonEmptyValueRedact: { type: boolean }
+    Rule:
+      type: object
+      properties:
+        pageCondition: { $ref: '#/components/schemas/PageCondition' }
+        actions:
+          type: array
+          items: { $ref: '#/components/schemas/Action' }
+    RequestBodyTruncate:
+      type: object
+      properties:
+        input: { $ref: '#/components/schemas/Input' }
+        output: { $ref: '#/components/schemas/Output' }
+      required: [input, output]
+    RequestBodyTransform:
+      type: object
+      properties:
+        activeSheet: { type: string }
+        input: { $ref: '#/components/schemas/Input' }
+        output:
+          anyOf:
+            - $ref: '#/components/schemas/Output'
+            - type: 'null'
+        rules:
+          type: array
+          items: { $ref: '#/components/schemas/Rule' }
+        webhook:
+          anyOf:
+            - $ref: '#/components/schemas/Webhook'
+            - type: 'null'
+      required: [input, rules]
+
+

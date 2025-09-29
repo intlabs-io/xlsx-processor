@@ -1,0 +1,168 @@
+package cell
+
+import (
+	"testing"
+
+	"github.com/xuri/excelize/v2"
+)
+
+func TestGetBgColor(t *testing.T) {
+	t.Run("get background colors from test file", func(t *testing.T) {
+		file, err := excelize.OpenFile("../../assets/goldenFiles/test.xlsx")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		defer file.Close()
+
+		sheetName := "Forecasting"
+
+		// Test cases with expected results based on the test file
+		testCases := []struct {
+			cellRef     string
+			description string
+		}{
+			{"A1", "First cell"},
+			{"B1", "Second cell"},
+			{"C1", "Third cell"},
+			{"A2", "Second row first cell"},
+			{"B2", "Second row second cell"},
+			{"A3", "Third row first cell"},
+			{"B3", "Third row second cell"},
+			{"C3", "Third row third cell"},
+			{"D3", "Third row fourth cell"},
+			{"E3", "Third row fifth cell"},
+			{"F3", "Third row sixth cell"},
+		}
+
+		t.Logf("Testing background colors in sheet: %s", sheetName)
+		t.Logf("%-10s %-25s %s", "Cell", "Description", "Background Color")
+		t.Logf("%-10s %-25s %s", "----", "-----------", "----------------")
+
+		for _, tc := range testCases {
+			bgColor, err := GetBgColor(file, sheetName, tc.cellRef)
+			if err != nil {
+				t.Errorf("Expected no error for cell %s, got: %v", tc.cellRef, err)
+				continue
+			}
+
+			t.Logf("%-10s %-25s %s", tc.cellRef, tc.description, bgColor)
+
+			// Verify we get a valid hex color (6 characters) or default
+			if bgColor != "" && len(bgColor) != 6 {
+				t.Errorf("Expected valid 6-character hex color for cell %s, got: %s (length: %d)", tc.cellRef, bgColor, len(bgColor))
+			}
+		}
+	})
+
+	t.Run("test different sheets", func(t *testing.T) {
+		file, err := excelize.OpenFile("../../assets/goldenFiles/test.xlsx")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		defer file.Close()
+
+		sheets := file.GetSheetList()
+		t.Logf("Available sheets: %v", sheets)
+
+		for _, sheetName := range sheets {
+			t.Logf("\nTesting sheet: %s", sheetName)
+
+			// Test a few cells in each sheet
+			testCells := []string{"A1", "B1", "A2", "B2", "C2", "D2"}
+			for _, cellRef := range testCells {
+				bgColor, err := GetBgColor(file, sheetName, cellRef)
+				if err != nil {
+					t.Logf("  %s: error - %v", cellRef, err)
+					continue
+				}
+				t.Logf("  %s: %s", cellRef, bgColor)
+			}
+		}
+	})
+
+	t.Run("compare with known colors from attributes test", func(t *testing.T) {
+		file, err := excelize.OpenFile("../../assets/goldenFiles/test.xlsx")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		defer file.Close()
+
+		// These are the background colors we expect to find based on the attributes test
+		expectedBgColors := []string{"000000", "808080", "4472C4", "FFC000", "FF0000", "70AD47", "7030A0", "F2F2F2", "DAE3F3", "FFF2CC", "FBD0CF", "E2F0D9", "DDCBFF", "E7E6E6"}
+
+		t.Logf("Expected background colors from test: %v", expectedBgColors)
+		t.Logf("Scanning all sheets to find these colors...")
+
+		foundColors := make(map[string][]string) // color -> list of cells where found
+
+		sheets := file.GetSheetList()
+		for _, sheetName := range sheets {
+			// Get sheet dimensions to scan all cells
+			rows, err := file.GetRows(sheetName)
+			if err != nil {
+				continue
+			}
+
+			for rowIndex, row := range rows {
+				for colIndex := range row {
+					cellRef, err := excelize.CoordinatesToCellName(colIndex+1, rowIndex+1)
+					if err != nil {
+						continue
+					}
+
+					bgColor, err := GetBgColor(file, sheetName, cellRef)
+					if err != nil || bgColor == "FFFFFF" {
+						continue // Skip errors and default white
+					}
+
+					// Check if this is one of our expected colors
+					for _, expectedColor := range expectedBgColors {
+						if bgColor == expectedColor {
+							foundColors[bgColor] = append(foundColors[bgColor], sheetName+":"+cellRef)
+							break
+						}
+					}
+				}
+			}
+		}
+
+		t.Logf("\nFound expected background colors:")
+		for color, locations := range foundColors {
+			t.Logf("  %s: found in %d locations: %v", color, len(locations), locations[:min(5, len(locations))])
+		}
+
+		t.Logf("\nSummary: Found %d out of %d expected background colors", len(foundColors), len(expectedBgColors))
+	})
+
+	t.Run("test invalid inputs", func(t *testing.T) {
+		file, err := excelize.OpenFile("../../assets/goldenFiles/test.xlsx")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		defer file.Close()
+
+		// Test invalid sheet name
+		bgColor, err := GetBgColor(file, "NonExistentSheet", "A1")
+		if err == nil {
+			t.Logf("Invalid sheet returned color: %s (this might be expected behavior)", bgColor)
+		} else {
+			t.Logf("Invalid sheet returned error: %v", err)
+		}
+
+		// Test invalid cell reference
+		bgColor, err = GetBgColor(file, "Forecasting", "InvalidCell")
+		if err == nil {
+			t.Logf("Invalid cell returned color: %s (this might be expected behavior)", bgColor)
+		} else {
+			t.Logf("Invalid cell returned error: %v", err)
+		}
+	})
+}
+
+// Helper function for Go versions that don't have min built-in
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
